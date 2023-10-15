@@ -76,9 +76,9 @@ class RTree {
                     R.children = subGroup;
                     level.add(R);
                 }
-                rectangles = level;
-                level = new ArrayList<>();
             }
+            rectangles = level;
+            level = new ArrayList<>();
         }
 
         Rectangle node = computeMBR(rectangles);
