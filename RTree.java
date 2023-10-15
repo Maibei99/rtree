@@ -20,47 +20,26 @@ class RTree {
         this.M = M;
     }
 
-    // Construcción del r-tree
-    private long writeNodeToFile(Rectangle node, RandomAccessFile file) throws IOException {
-        byte[] data = node.toBytes();
-        long position = file.length(); // Se escribirá al final del archivo
-        file.seek(position);
-        file.write(data);
-        return position;
-    }
-
+    // Construcción usando NearestX
     // Construcción usando NearestX
     public void buildNearestXTree(List<Rectangle> rectangles) {
-        try (RandomAccessFile file = new RandomAccessFile("rtree.dat", "rw")) {
         // Se ordenan los rectángulos según la coordenada X del centro del rectángulo
         Collections.sort(rectangles, Comparator.comparing(Rectangle::centerX));
         this.n = rectangles.size();
-        this.root = buildNodes(rectangles, file);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        this.root = buildNodes(rectangles);
     }
 
     // Construcción usando Hilbert
     public void buildHilbertTree(List<Rectangle> rectangles) {
-        try (RandomAccessFile file = new RandomAccessFile("rtree.dat", "rw")) {
         Collections.sort(rectangles, Comparator.comparing(Rectangle :: hilbertValue));
         this.n = rectangles.size();
-        this.root = buildNodes(rectangles, file);
-    } catch (IOException e) {
-        e.printStackTrace();
+        this.root = buildNodes(rectangles);
     }
-    }
-
 
     // Construcción usando STR
     public void buildSTRtree(List<Rectangle> rectangles){
-        try (RandomAccessFile file = new RandomAccessFile("rtree.dat", "rw")) {
         this.n = rectangles.size();
-        this.root = buildNodes(rectangles, file);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        this.root = buildNodesSTR(rectangles);
     }
 
     private Rectangle buildNodesSTR(List<Rectangle> r){
@@ -74,22 +53,26 @@ class RTree {
         // Buffer para guardar el nivel próximo
         List<Rectangle> level = new ArrayList<>();
 
+        int s = (int) Math.round(Math.sqrt((double) rectangles.size() / M));
         while (rectangles.size() > M) {
-            int s = (int) Math.round(Math.sqrt((double) rectangles.size() / M));
+            s = (int) Math.round(Math.sqrt((double) rectangles.size() / M));
 
             if (s * M < rectangles.size()) {
                 s++;
             }
 
-            for (int i = 0; i < rectangles.size(); i += (M*s)) {
-                int end = Math.min(i + (M*s), rectangles.size());
+            for (int i = 0; i < rectangles.size(); i += s*M) {
+                int end = Math.min(i + M*s, rectangles.size());
+                System.out.println("end:" + end);
                 List<Rectangle> group = rectangles.subList(i, end);
 
                 Collections.sort(group, Comparator.comparing(Rectangle :: centerY));
                 for (int j = 0; j < group.size(); j += M) {
-                    end = Math.min(j + M, group.size());
-                    List<Rectangle> subGroup = group.subList(j, end);
+                    int end2 = Math.min(j + M, group.size());
+                    List<Rectangle> subGroup = group.subList(j, end2);
                     Rectangle R = computeMBR(subGroup);
+                    System.out.println("s:"+ s);
+                    System.out.println("[" + R.x1 + "," + R.y1 + "][" + R.x2 + "," + R.y2 + "]");
                     R.children = subGroup;
                     level.add(R);
                 }
@@ -97,13 +80,14 @@ class RTree {
                 level = new ArrayList<>();
             }
         }
+
         Rectangle node = computeMBR(rectangles);
         node.children = rectangles;
         return node;
     }
 
     // juntamos en grupos de tamaño M
-    private Rectangle buildNodes(List<Rectangle> sortedRectangles, RandomAccessFile file) throws IOException {
+    private Rectangle buildNodes(List<Rectangle> sortedRectangles) {
         if (sortedRectangles.size() == 0) {
             return new Rectangle(0,0,0,0);
         }
@@ -119,8 +103,6 @@ class RTree {
                 int end = Math.min(i + M, rectangles.size());
                 List<Rectangle> group = rectangles.subList(i, end);
                 Rectangle R = computeMBR(group);
-                // Después de crear un nuevo nodo R
-                R.id = writeNodeToFile(R, file);
                 R.children = group;
                 children.add(R);
             }
@@ -133,16 +115,7 @@ class RTree {
 
         return node;
     }
-    private Rectangle readNodeFromFile(long id, RandomAccessFile file) throws IOException {
-        file.seek(id);
-        byte[] data = new byte[24]; // Leer el encabezado primero
-        file.read(data);
-        int childrenCount = ByteBuffer.wrap(data).getInt(20);
-        byte[] fullData = new byte[24 + childrenCount * 16];
-        System.arraycopy(data, 0, fullData, 0, 24);
-        file.read(fullData, 24, childrenCount * 16);
-        return Rectangle.fromBytes(fullData);
-    }
+
     private Rectangle computeMBR(List<Rectangle> rectangles) {
         int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE;
 
@@ -164,18 +137,11 @@ class RTree {
     }
 
     public List<Rectangle> search(Rectangle query) {
-        List<Rectangle> result = new ArrayList<>();
-        try (RandomAccessFile file = new RandomAccessFile("rtree.dat", "r")) {
-            this.diskAccessCount = 0;
-            return recursiveSearch(root.id, query, file, result);
-        } catch (IOException e) {
-            e.printStackTrace();
-            return Collections.emptyList();
-        }
+        this.diskAccessCount = 0; // Reiniciar el contador cada vez que iniciamos una búsqueda
+        return recursiveSearch(root, query, new ArrayList<>());
     }
 
-    private List<Rectangle> recursiveSearch(long nodeId, Rectangle query, RandomAccessFile file, List<Rectangle> result) throws IOException {
-        Rectangle node = readNodeFromFile(nodeId, file);
+    private List<Rectangle> recursiveSearch(Rectangle node, Rectangle query, List<Rectangle> result) {
 
         if (!node.intersects(query)) {
             return result;
@@ -188,9 +154,10 @@ class RTree {
         }
         if (node.intersects(query)){
             diskAccessCount++;
+
         }
         for (Rectangle child : node.children) {
-            recursiveSearch(child.id, query, file, result);
+            recursiveSearch(child, query, result);
         }
 
         return result;
@@ -310,6 +277,7 @@ class RTree {
                 new Rectangle(10,7,10,7),
                 new Rectangle(10,9,10,9)
         );
+
         STRtree.buildSTRtree(rectangles4);
         Rectangle strQuery = new Rectangle(1,2,4,3);
         List<Rectangle> results4 = STRtree.search(strQuery);
