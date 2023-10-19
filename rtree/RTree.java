@@ -1,27 +1,59 @@
-import org.w3c.dom.css.Rect;
+package rtree;
+
 import structures.Rectangle;
 
-import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.nio.ByteBuffer;
 import java.util.*;
 
-class RTree {
-    // Dado un conjunto R de n rectángulos
+/**
+ * Clase que representa un árbol R-Tree.
+ *
+ */
+public class RTree {
+    /**
+     * Raiz del árbol.
+     */
     Rectangle root;
+    /**
+     * Cantidad de datos (rectángulos) en el árbol.
+     */
     int n;
-    int M; // Cantidad máxima de hijos de cada nodo del árbol
+    /**
+     * Cantidad máxima de hijos de cada nodo del árbol.
+     */
+    int M;
+    /**
+     * Cantidad de accesos a disco realizados durante la última búsqueda.
+     */
     int diskAccessCount;
 
-    public RTree(int M, String filename) throws IOException {
-        this.M = M;
-    }
+    /**
+     * Constructor de la clase. Recibe como parámetro la cantidad máxima de hijos
+     * de cada nodo del árbol.
+     * @param M Cantidad máxima de hijos de cada nodo del árbol.
+     */
     public RTree(int M) {
         this.M = M;
+        this.diskAccessCount = 0;
+        this.n = 0;
     }
 
-    // Construcción usando NearestX
-    // Construcción usando NearestX
+    /**
+     * Getter de la cantidad de accesos a disco realizados durante la última búsqueda.
+     * @return Cantidad de accesos a disco realizados durante la última búsqueda.
+     */
+    public int getDiskAccessCount() {
+        return diskAccessCount;
+    }
+
+    /**
+     * Construye un árbol R-Tree usando el algoritmo NearestX. El árbol se construye
+     * sobre el conjunto de rectángulos que se pasan como parámetro. Primero, ordena
+     * los rectángulos según su coordenada X del centro. Luego, construye el árbol
+     * iterativamente, desde las hojas, agrupando en rectángulos de tamaño M.
+     *
+     * @param rectangles Conjunto de rectángulos sobre el cual se construye el árbol.
+     *
+     */
     public void buildNearestXTree(List<Rectangle> rectangles) {
         // Se ordenan los rectángulos según la coordenada X del centro del rectángulo
         Collections.sort(rectangles, Comparator.comparing(Rectangle::centerX));
@@ -29,41 +61,56 @@ class RTree {
         this.root = buildNodes(rectangles);
     }
 
-    // Construcción usando Hilbert
+    /**
+     * Construye un árbol R-Tree usando el algoritmo Hilbert. El árbol se construye
+     * sobre el conjunto de rectángulos que se pasan como parámetro. Primero, ordena
+     * los rectángulos según su valor Hilbert. Luego, construye el árbol iterativamente,
+     * desde las hojas, agrupando en rectángulos de tamaño M.
+     * @param rectangles Conjunto de rectángulos sobre el cual se construye el árbol.
+     */
     public void buildHilbertTree(List<Rectangle> rectangles) {
         Collections.sort(rectangles, Comparator.comparing(Rectangle :: hilbertValue));
         this.n = rectangles.size();
         this.root = buildNodes(rectangles);
     }
 
-    // Construcción usando STR
-    public void buildSTRtree(List<Rectangle> rectangles){
+    /**
+     * Construye un árbol R-Tree usando el algoritmo STR. El árbol se construye
+     * sobre el conjunto de rectángulos que se pasan como parámetro.
+     * @param rectangles Conjunto de rectángulos sobre el cual se construye el árbol.
+     */
+    public void buildSTRTree(List<Rectangle> rectangles){
         this.n = rectangles.size();
         this.root = buildNodesSTR(rectangles);
     }
 
+    /**
+     * Construye un árbol R-Tree usando el algoritmo STR. El árbol se construye
+     * sobre el conjunto de rectángulos que se pasan como parámetro. De forma iterativa,
+     * ordena los rectángulos según so centro X, luego los agrupa en grupos de tamaño
+     * M*S, donde S es la raíz cuadrada de la cantidad de rectángulos sobre M. Luego,
+     * ordena los grupos según su centro Y, y los agrupa en grupos de tamaño M. El proceso
+     * se repite hasta que quede un único grupo, que representa la raíz del árbol.
+     * @param r Conjunto de rectángulos sobre el cual se construye el árbol.
+     * @return Rectángulo que representa la raíz del árbol.
+     */
     private Rectangle buildNodesSTR(List<Rectangle> r){
         if (r.size() == 0) {
             return new Rectangle(0,0,0,0);
         }
-        Collections.sort(r, Comparator.comparing(Rectangle :: centerX));
-
         // Array para ir guardando el nivel actual
         List<Rectangle> rectangles = r;
         // Buffer para guardar el nivel próximo
         List<Rectangle> level = new ArrayList<>();
-
-        int s = (int) Math.round(Math.sqrt((double) rectangles.size() / M));
+        int s;
         while (rectangles.size() > M) {
             s = (int) Math.round(Math.sqrt((double) rectangles.size() / M));
-
             if (s * M < rectangles.size()) {
                 s++;
             }
-
+            Collections.sort(rectangles, Comparator.comparing(Rectangle :: centerX));
             for (int i = 0; i < rectangles.size(); i += s*M) {
                 int end = Math.min(i + M*s, rectangles.size());
-                System.out.println("end:" + end);
                 List<Rectangle> group = rectangles.subList(i, end);
 
                 Collections.sort(group, Comparator.comparing(Rectangle :: centerY));
@@ -71,9 +118,8 @@ class RTree {
                     int end2 = Math.min(j + M, group.size());
                     List<Rectangle> subGroup = group.subList(j, end2);
                     Rectangle R = computeMBR(subGroup);
-                    System.out.println("s:"+ s);
-                    System.out.println("[" + R.x1 + "," + R.y1 + "][" + R.x2 + "," + R.y2 + "]");
                     R.children = subGroup;
+                    R.isData = false;
                     level.add(R);
                 }
             }
@@ -83,39 +129,52 @@ class RTree {
 
         Rectangle node = computeMBR(rectangles);
         node.children = rectangles;
+        node.isData = false;
         return node;
     }
 
-    // juntamos en grupos de tamaño M
+    /**
+     * Construye un árbol R-Tree usando la lista de rectángulos ordenados que se pasan como
+     * parámetro. Los rectángulos pueden estar ordenados según su centro X, si se llama desde
+     * el método buildNearestXTree, o según su valor Hilbert, si se llama desde el método
+     * buildHilbertTree. De forma iterativa, agrupa los rectángulos en grupos de tamaño M,
+     * y luego calcula el MBR de cada grupo. El proceso se repite hasta que quede un único
+     * grupo, que representa la raíz del árbol.
+     * @param sortedRectangles Lista de rectángulos ordenados según su centro X o su valor
+     *                         Hilbert.
+     * @return Rectángulo que representa la raíz del árbol.
+     */
     private Rectangle buildNodes(List<Rectangle> sortedRectangles) {
         if (sortedRectangles.size() == 0) {
             return new Rectangle(0,0,0,0);
         }
-
         // Array para ir guardando los niveles
         List<Rectangle> rectangles = sortedRectangles;
         // Array para guardar los rectángulos que se formarán
         List<Rectangle> children = new ArrayList<>();
-
         while (rectangles.size() > M) {
-
             for (int i = 0; i < rectangles.size(); i += M) {
                 int end = Math.min(i + M, rectangles.size());
                 List<Rectangle> group = rectangles.subList(i, end);
                 Rectangle R = computeMBR(group);
                 R.children = group;
+                R.isData = false;
                 children.add(R);
             }
             rectangles = children;
             children = new ArrayList<>();
         }
-
         Rectangle node = computeMBR(rectangles);
         node.children = rectangles;
-
+        node.isData = false;
         return node;
     }
 
+    /**
+     * Calcula el MBR de un conjunto de rectángulos.
+     * @param rectangles Conjunto de rectángulos.
+     * @return Rectángulo que representa el MBR del conjunto de rectángulos.
+     */
     private Rectangle computeMBR(List<Rectangle> rectangles) {
         int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE;
 
@@ -136,86 +195,46 @@ class RTree {
         return new Rectangle(minX, minY, maxX, maxY);
     }
 
+    /**
+     * Busca en el árbol los rectángulos que intersectan con el rectángulo que se pasa
+     * como parámetro.
+     * @param query Rectángulo que representa la consulta.
+     */
     public List<Rectangle> search(Rectangle query) {
         this.diskAccessCount = 0; // Reiniciar el contador cada vez que iniciamos una búsqueda
-        return recursiveSearch(root, query, new ArrayList<>());
-    }
 
-    private List<Rectangle> recursiveSearch(Rectangle node, Rectangle query, List<Rectangle> result) {
+        Stack<Rectangle> stack = new Stack<>();
+        stack.push(root);
 
-        if (!node.intersects(query)) {
-            return result;
-        }
-        if (node.children.isEmpty()) { // Si es un nodo hoja
-            if (node.intersects(query)) {
-                result.add(node);
+        List<Rectangle> results = new ArrayList<>();
+
+        while (!stack.isEmpty()) {
+            Rectangle node = stack.pop();
+
+            if (!node.intersects(query)) {
+                continue;
             }
-            return result;
-        }
-        if (node.intersects(query)){
+
+            if (node.isData) {
+                results.add(node);
+                continue;
+            }
+
             diskAccessCount++;
 
-        }
-        for (Rectangle child : node.children) {
-            recursiveSearch(child, query, result);
+            for (Rectangle child : node.children) {
+                stack.push(child);
+            }
         }
 
-        return result;
+        return results;
     }
 
     public static void main(String[] args) {
-        RTree tree = new RTree(2);
-        List<Rectangle> rectangles = new ArrayList<>();
-        rectangles.add(new Rectangle(1, 1, 3, 3));
-        rectangles.add(new Rectangle(2, 2, 4, 4));
-        rectangles.add(new Rectangle(3, 1, 5, 3));
-        rectangles.add(new Rectangle(4, 2, 6, 4));
-        tree.buildNearestXTree(rectangles);
 
-        Rectangle query = new Rectangle(2, 2, 5, 4);
-        List<Rectangle> results = tree.search(query);
-
-        System.out.println("Rectangles intersecting with query:");
-        for (Rectangle r : results) {
-            System.out.println("[" + r.x1 + "," + r.y1 + "][" + r.x2 + "," + r.y2 + "]");
-        }
-        System.out.println("Disk accesses during search: " + tree.diskAccessCount);
-
-        List<Rectangle> rectangles2 = Arrays.asList(
-                new Rectangle(0,0,1,1),
-                new Rectangle(2,2,3,3),
-                new Rectangle(4,4,5,5),
-                new Rectangle(6,6,7,7),
-                new Rectangle(8,8,9,9)
-        );
-
-        RTree rTree = new RTree(2);
-
-        rTree.buildNearestXTree(rectangles2);
-        Rectangle query2 = new Rectangle(0,0,4,4);
-
-        List<Rectangle> results2 = rTree.search(query2);
-
-        System.out.println("Rectangles intersecting with query:");
-        for (Rectangle r : results2) {
-            System.out.println("[" + r.x1 + "," + r.y1 + "][" + r.x2 + "," + r.y2 + "]");
-        }
-        System.out.println("Disk accesses during search: " + rTree.diskAccessCount);
-        System.out.println("---------------------------------");
-
-        RTree hilbertTree = new RTree(2);
-        hilbertTree.buildHilbertTree(rectangles2);
-        Rectangle query3 = new Rectangle(0,0,4,4);
-        List<Rectangle> results3 = hilbertTree.search(query3);
-
-        System.out.println("Rectangles intersecting with query:");
-        for (Rectangle r : results3) {
-            System.out.println("[" + r.x1 + "," + r.y1 + "][" + r.x2 + "," + r.y2 + "]");
-        }
-        System.out.println("Disk accesses during search: " + rTree.diskAccessCount);
-        System.out.println("---------------------------------");
-
-        RTree STRtree = new RTree(2);
+        RTree NXTree = new RTree(10);
+        RTree hilbertTree = new RTree(10);
+        RTree STRTree = new RTree(10);
         List<Rectangle> rectangles4 = Arrays.asList(
                 new Rectangle(1,1,1,1),
                 new Rectangle(1,2,1,2),
@@ -277,17 +296,32 @@ class RTree {
                 new Rectangle(10,7,10,7),
                 new Rectangle(10,9,10,9)
         );
-
-        STRtree.buildSTRtree(rectangles4);
+        NXTree.buildNearestXTree(rectangles4);
+        hilbertTree.buildHilbertTree(rectangles4);
+        STRTree.buildSTRTree(rectangles4);
         Rectangle strQuery = new Rectangle(1,2,4,3);
-        List<Rectangle> results4 = STRtree.search(strQuery);
 
-        System.out.println("STR: Rectangles intersecting with query:");
-        for (Rectangle r : results4) {
+        System.out.println("Rectangles intersecting with query:");
+        List<Rectangle> resultsNX = NXTree.search(strQuery);
+        for (Rectangle r : resultsNX) {
             System.out.println("[" + r.x1 + "," + r.y1 + "][" + r.x2 + "," + r.y2 + "]");
         }
-        System.out.println("Disk accesses during search: " + STRtree.diskAccessCount);
+        System.out.println("Disk accesses during search: " + NXTree.diskAccessCount);
 
+        System.out.println("---------------------------------");
+        System.out.println("Rectangles intersecting with query:");
+        List<Rectangle> resultsHilbert = hilbertTree.search(strQuery);
+        for (Rectangle r : resultsHilbert) {
+            System.out.println("[" + r.x1 + "," + r.y1 + "][" + r.x2 + "," + r.y2 + "]");
+        }
+        System.out.println("Disk accesses during search: " + hilbertTree.diskAccessCount);
 
+        System.out.println("---------------------------------");
+        System.out.println("Rectangles intersecting with query:");
+        List<Rectangle> resultsSTR = STRTree.search(strQuery);
+        for (Rectangle r : resultsSTR) {
+            System.out.println("[" + r.x1 + "," + r.y1 + "][" + r.x2 + "," + r.y2 + "]");
+        }
+        System.out.println("Disk accesses during search: " + STRTree.diskAccessCount);
     }
 }
